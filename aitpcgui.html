@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Transcription Settings</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Windows 11 System Font Stack */
+        body {
+            font-family: "Segoe UI Variable Display", "Segoe UI", "Segoe UI Emoji", "Segoe UI Symbol", system-ui, sans-serif;
+            background-color: #000;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Mica Effect / Backdrop */
+        .window-frame {
+            background-color: #202020; /* Windows 11 Dark Gray */
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            width: 520px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Setting Card Pattern */
+        .setting-card {
+            background-color: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom-color: rgba(255, 255, 255, 0.02);
+            border-radius: 4px;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: background-color 0.1s ease;
+        }
+
+        .setting-card:hover {
+            background-color: rgba(255, 255, 255, 0.06);
+        }
+
+        .setting-card-title {
+            font-size: 14px;
+            font-weight: 400;
+            color: #ffffff;
+        }
+
+        .setting-card-description {
+            font-size: 12px;
+            color: #a1a1a1;
+        }
+
+        /* Fluent UI Controls */
+        .fluent-select {
+            background-color: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-bottom: 2px solid rgba(255, 255, 255, 0.4);
+            border-radius: 4px;
+            color: white;
+            font-size: 14px;
+            padding: 4px 12px;
+            outline: none;
+        }
+
+        .fluent-select:focus {
+            border-bottom-color: #60cdff;
+        }
+
+        /* Windows Toggle */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+        }
+
+        .switch input { opacity: 0; width: 0; height: 0; }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: transparent;
+            border: 1px solid #999;
+            transition: .2s;
+            border-radius: 20px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 12px;
+            width: 12px;
+            left: 3px;
+            bottom: 3px;
+            background-color: #999;
+            transition: .2s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: #60cdff;
+            border-color: #60cdff;
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(20px);
+            background-color: #000;
+        }
+
+        /* Windows Slider */
+        input[type="range"].fluent-range {
+            -webkit-appearance: none;
+            width: 100px;
+            background: transparent;
+        }
+
+        input[type="range"].fluent-range::-webkit-slider-runnable-track {
+            height: 4px;
+            background: #999;
+            border-radius: 2px;
+        }
+
+        input[type="range"].fluent-range::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: #60cdff;
+            border: 4px solid #454545;
+            cursor: pointer;
+            margin-top: -7px;
+        }
+
+        .kbd-win {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 12px;
+            color: #ccc;
+        }
+    </style>
+</head>
+<body>
+
+<div class="window-frame">
+    <!-- Windows 11 Title Bar -->
+    <div class="flex items-center justify-between px-4 py-2 border-b border-white/[0.05]">
+        <div class="flex items-center gap-3">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#60cdff" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+            <span class="text-xs font-normal">AI Transcription</span>
+        </div>
+        <div class="flex items-center">
+            <div class="px-4 py-2 hover:bg-white/10 cursor-default transition-colors">
+                <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="white"/></svg>
+            </div>
+            <div class="px-4 py-2 hover:bg-white/10 cursor-default transition-colors">
+                <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="white"/></svg>
+            </div>
+            <div class="px-4 py-2 hover:bg-[#c42b1c] cursor-default transition-colors group">
+                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0L10 10M10 0L0 10" stroke="white" stroke-width="1.2"/></svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- Content Area -->
+    <div class="p-6 space-y-6 overflow-y-auto max-h-[600px]">
+        
+        <!-- Header -->
+        <div class="mb-4">
+            <h1 class="text-2xl font-semibold">Settings</h1>
+        </div>
+
+        <!-- Hotkey Card -->
+        <div class="space-y-1">
+            <h2 class="text-sm font-semibold text-white/90 px-1 mb-2">Activation</h2>
+            <div class="setting-card">
+                <div class="flex items-center gap-4">
+                    <div class="p-2 bg-white/5 rounded">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>
+                    </div>
+                    <div>
+                        <div class="setting-card-title">Keyboard shortcut</div>
+                        <div class="setting-card-description">Press this to start transcribing</div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <kbd class="kbd-win">Shift</kbd>
+                    <span class="text-white/30">+</span>
+                    <kbd class="kbd-win">/</kbd>
+                    <button class="ml-4 text-xs bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1 rounded transition-all">Edit</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Transcription Engine Card Group -->
+        <div class="space-y-1">
+            <h2 class="text-sm font-semibold text-white/90 px-1 mb-2">Engine</h2>
+            <div class="setting-card rounded-b-none">
+                <div>
+                    <div class="setting-card-title">Model selection</div>
+                    <div class="setting-card-description">Choose performance vs. accuracy</div>
+                </div>
+                <select class="fluent-select min-w-[200px]">
+                    <option>GPT-4o (Best accuracy)</option>
+                    <option>Whisper Large (Balanced)</option>
+                    <option>Whisper Base (Fast)</option>
+                </select>
+            </div>
+            <div class="setting-card rounded-t-none border-t-0">
+                <div>
+                    <div class="setting-card-title">Transcription language</div>
+                    <div class="setting-card-description">Select primary language or auto-detect</div>
+                </div>
+                <select class="fluent-select min-w-[120px]">
+                    <option>English</option>
+                    <option>Spanish</option>
+                    <option>Auto-detect</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Voice Activity -->
+        <div class="space-y-1">
+            <h2 class="text-sm font-semibold text-white/90 px-1 mb-2">Voice activity</h2>
+            <div class="setting-card rounded-b-none">
+                <div>
+                    <div class="setting-card-title">Silence timeout</div>
+                    <div class="setting-card-description">Stop after 300ms of silence</div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <input type="range" class="fluent-range" min="100" max="1000" value="300">
+                    <span class="text-xs font-mono w-10 text-right">300ms</span>
+                </div>
+            </div>
+            <div class="setting-card rounded-t-none border-t-0">
+                <div>
+                    <div class="setting-card-title">Detection threshold</div>
+                    <div class="setting-card-description">Sensitivity to your voice</div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <input type="range" class="fluent-range" min="0" max="1" step="0.1" value="0.5">
+                    <span class="text-xs font-mono w-10 text-right">0.5</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Toggles -->
+        <div class="space-y-1">
+            <h2 class="text-sm font-semibold text-white/90 px-1 mb-2">System</h2>
+            <div class="setting-card rounded-b-none">
+                <div>
+                    <div class="setting-card-title">Show recording overlay</div>
+                    <div class="setting-card-description">Visual feedback while speaking</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="setting-card rounded-t-none border-t-0">
+                <div>
+                    <div class="setting-card-title">Launch on startup</div>
+                    <div class="setting-card-description">Start when Windows boots up</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer Buttons -->
+    <div class="p-6 bg-[#1c1c1c] border-t border-white/[0.05] flex justify-end gap-2 rounded-b-lg">
+        <button class="px-8 py-1.5 bg-[#60cdff] hover:bg-[#50bde0] text-black text-sm font-semibold rounded transition-all">Save</button>
+        <button class="px-8 py-1.5 bg-white/[0.05] hover:bg-white/10 text-white text-sm font-semibold border border-white/10 rounded transition-all">Cancel</button>
+    </div>
+</div>
+
+</body>
+</html>

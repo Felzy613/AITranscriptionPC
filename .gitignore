@@ -1,0 +1,22 @@
+# API key — never commit this
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+
+# User config (auto-generated on first run)
+config.json
+
+# Debug / temp files
+*.txt
+*.log
+Screenshot*
+fw_err.txt
+fw_out.txt
+qfw_err.txt
+qfw_out.txt
+inspect*.txt
+qt6*.txt
