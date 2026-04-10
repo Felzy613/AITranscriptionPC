@@ -35,50 +35,61 @@ Requires a `.env` file with `OPENAI_API_KEY=sk-...` in the project root.
 ## Architecture
 
 ### Threading Model
-This is the most critical thing to understand. Four threads run concurrently:
+Four threads run concurrently:
 
-- **Main thread** — Qt `app.exec()` event loop. Only this thread may touch Qt widgets. All other threads send signals via `pyqtSignal` (see `_Bridge` in `main.py`).
-- **keyboard OS thread** — Fires `on_hotkey_press` / `on_hotkey_release` via the `keyboard` library. These callbacks must return immediately — they emit signals or set threading events. Never block here.
-- **RealtimeTranscriber thread** — Runs an asyncio event loop (`_run_loop`). Manages the OpenAI WebSocket, audio sender coroutine, and event receiver coroutine.
-- **sounddevice callback thread** — Internal to PortAudio. Calls `_start_mic_prebuffer`'s callback every 20ms. Must be fast; uses `asyncio.run_coroutine_threadsafe` to enqueue audio.
+- **Main thread** — Qt `app.exec()` event loop. Only this thread may touch Qt widgets. All other threads communicate via `pyqtSignal`.
+- **HotkeyListener polling thread** — Spawned per keypress. Polls `keyboard.is_pressed()` every 20ms to detect release. Fires `on_hotkey_release` callback when combo breaks.
+- **RealtimeTranscriber thread** — Runs an asyncio event loop (`_run_loop`). Manages the OpenAI WebSocket, `_send_audio` coroutine, and `_receive_events` coroutine.
+- **sounddevice callback thread** — Internal to PortAudio. Calls the mic callback every 20ms. Uses `asyncio.run_coroutine_threadsafe` to enqueue audio chunks.
 
 ### Cross-thread UI updates
-Worker threads must never touch Qt widgets directly. Two mechanisms are used:
+Worker threads must never touch Qt widgets directly. Mechanisms used:
 
-- **`_Bridge` (main.py)** — `QObject` with `pyqtSignal`s for `set_ui_sig`, `open_settings_sig`, `quit_sig`. Hotkey/transcriber threads emit these; slots on the main thread handle them.
-- **`OverlayWindow._sig`** — The overlay has its own internal `pyqtSignal(str, str)` so `set_state()` is safe to call from any thread.
-- **`_HotkeyCapture._update_sig`** — Same pattern for the hotkey capture dialog.
-
-Old Tkinter pattern (`root.after(0, fn)`) is gone — do not use it.
+- **`_Bridge` (main.py)** — `QObject` with `pyqtSignal`s for `set_ui_sig`, `open_settings_sig`, `quit_sig`.
+- **`OverlayWindow._sig`** — Internal `pyqtSignal(str, str)` so `set_state()` is safe from any thread.
+- **`_HotkeyCapture._update_sig` / `_close_sig`** — Signals marshal display updates and close events from the pynput thread to the Qt thread. Do NOT use `QTimer.singleShot` from non-Qt threads — it schedules on the calling thread's event loop which doesn't exist, so it silently never fires.
 
 ### Recording State Machine (`app_state.py`)
 `IDLE → RECORDING → TRANSCRIBING → IDLE` (or `→ ERROR → IDLE`).
-State transitions happen in `main.py`'s `on_hotkey_press` / `on_hotkey_release`.
+
+**Critical ordering in `on_hotkey_press`**: `active_transcriber` must be set before state changes to `RECORDING`. If state is set first, a fast hotkey release can pass the state check in `on_hotkey_release` but find `active_transcriber = None`, causing stop to be a no-op and leaving the session running forever.
 
 ### Real-time Transcription Flow (`realtime_transcriber.py`)
-1. **Hotkey pressed** → `start()` called → mic opens immediately and buffers audio into `_pre_buffer` (a `deque`) before the WebSocket is ready.
+1. **Hotkey pressed** → `RealtimeTranscriber` created and stored in `active_transcriber`, then state set to `RECORDING`. Mic opens immediately, buffering into `_pre_buffer` before WebSocket is ready.
 2. WebSocket connects to `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview`.
 3. Session configured with `input_audio_transcription.model = gpt-4o-transcribe` and server VAD.
-4. `_flush_prebuffer()` sends all pre-captured audio, then `_send_audio()` continues streaming.
-5. Server VAD detects speech pauses → emits `conversation.item.input_audio_transcription.delta` events → each delta is injected immediately.
-6. **Hotkey released** → `stop()` called → mic stops, `stop_event` set, remaining audio committed via `input_audio_buffer.commit`.
+4. `_flush_prebuffer()` sends all pre-captured audio; `_send_audio()` continues streaming live.
+5. Server VAD emits `conversation.item.input_audio_transcription.delta` events → each delta is injected via `run_in_executor` (off the event loop) so `_send_audio` is never starved.
+6. **Hotkey released** → `stop()` called → mic stops, `_stop_event` set. Before committing, sends `session.update` with `turn_detection: None` to disable server VAD — this prevents the server from waiting out its silence window (e.g. 600ms) before processing the final audio. Then commits remaining audio via `input_audio_buffer.commit`.
 
-**Two separate model names**: the WebSocket connection uses `REALTIME_MODEL = "gpt-4o-realtime-preview"`; the actual transcription quality uses `gpt-4o-transcribe` (or `gpt-4o-mini-transcribe`) in the session config. These are different.
+**Race condition guard**: `_stop_requested` flag is set in `stop()`. If `stop()` is called before `_session()` has created `_stop_event`, the flag causes `_stop_event` to be set immediately when it's created.
+
+**Two separate model names**: The WebSocket URL uses `REALTIME_MODEL = "gpt-4o-realtime-preview"`; transcription quality is set by `gpt-4o-transcribe` (or `gpt-4o-mini-transcribe`) inside the session config.
+
+**Do not block the asyncio event loop from `_receive_events`**: The delta callback (`_on_delta`) calls `inject_delta` which uses `time.sleep`. Always call it via `await loop.run_in_executor(None, self._on_delta, delta)` — blocking the event loop starves `_send_audio`, creating apparent audio gaps that trigger premature VAD commits on the server.
 
 ### Text Injection (`text_injector.py`)
-Two modes:
-- **Batch** (`inject(text)`): saves clipboard, pastes full text, restores clipboard.
-- **Streaming** (`start_stream()` → repeated `inject_delta(delta)` → `end_stream()`): saves clipboard once at start, pastes each delta without restore, restores only at end.
+Streaming mode only (batch mode exists but is unused in the main flow):
+- `start_stream()` — saves clipboard once.
+- `inject_delta(delta)` — copies delta to clipboard, waits 30ms, sends Ctrl+V. Does NOT restore clipboard after each delta (restoring immediately after Ctrl+V races with the target app reading the clipboard, causing missed words).
+- `end_stream()` — restores original clipboard. Called after session fully completes.
 
 ### Settings Dialog (`settings_dialog.py`)
-`SettingsDialog` is a plain Python wrapper; `SettingsWindow` is the actual `FramelessWindow`.
-- Opening is triggered via `bridge.open_settings_sig.emit()` → marshalled to main thread → `_settings_dialog.show()`.
-- Uses **PyQt6-Frameless-Window** (`qframelesswindow.FramelessWindow`) for the custom title bar and Windows 11 Mica effect (`windowEffect.setMicaEffect`). Title bar is set to `transparent` so Mica shows through it.
-- All Fluent-style visuals (combobox border-bottom, toggle switch) are done with custom QSS + `_Toggle(QAbstractButton)` with `QPropertyAnimation`. No qfluentwidgets dependency.
-- **Background layering**: The scroll content widget uses `WA_StyledBackground = True` + `background: #202020` (solid, like the HTML mockup). The QSS rule `QScrollArea > QWidget > QWidget { background: #202020; }` reinforces this. Child widgets must NOT set `background: transparent` — doing so causes Qt to composite against the system white, producing white outlines around widgets.
-- **`_Slider`** — `QSlider` subclass with custom `paintEvent` that draws a perfectly circular handle via `QPainter`. The QSS handle is set to `width: 0; height: 0` to hide the default handle; the painter draws a `_R = 7px` radius circle on top. This avoids the pill-shape distortion caused by Qt's `margin: -Npx 0` expanding the handle's bounding rect at high DPI.
-- **`_KeyboardIcon`** — `QWidget` subclass using `QSvgRenderer` to render the keyboard SVG icon from the HTML mockup (keyboard outline + key dots + spacebar) inside a subtle `rgba(255,255,255,13)` rounded badge.
-- **`_HotkeyCapture`** — modal hotkey picker. Uses pynput on a background thread; `_update_sig = pyqtSignal(str)` marshals display updates to the main thread. `exec()` creates a `QEventLoop` stored as `self._loop`; `closeEvent` calls `self._loop.quit()` to unblock it. `QTimer.singleShot(0, self.close)` is used from the pynput thread to safely trigger close on the Qt thread.
+`SettingsDialog` is a plain Python wrapper; `SettingsWindow` is the actual `QWidget`.
+
+- Uses a **native Windows title bar** (plain `QWidget`, no `qframelesswindow`). Dark mode is applied via `DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE=20, 1)` in `showEvent` via `QTimer.singleShot(0, ...)`.
+- All Fluent-style visuals (combobox, toggle switch, slider) done with custom QSS + subclasses. No external widget library.
+- **QSS scoping**: Rules set on a parent widget cascade to descendants, BUT if an intermediate widget has its own `setStyleSheet`, its children only see that intermediate stylesheet. Fix: use `setObjectName` + `WA_StyledBackground` on intermediate widgets and control their background via the root QSS rather than inline `setStyleSheet`.
+- **`QFrame` border bleeding**: `QLabel` is a subclass of `QFrame`. A `QFrame { border: ... }` rule in a group's stylesheet applies to all `QLabel` children too. Fix: use `QFrame#group { ... }` and add explicit `QLabel { border: none; }` in the same stylesheet.
+- **`_Slider`** — `QSlider` subclass. Ignores wheel events unless focused (prevents accidental value changes when scrolling). Custom `paintEvent` draws a circular handle via `QPainter`.
+- **`_WheelGuard`** — `QObject` event filter. Installed on all `QComboBox` instances. Ignores wheel events unless the widget has focus, so scrolling over dropdowns scrolls the parent `QScrollArea` instead.
+- **`_HotkeyCapture`** — Modal hotkey picker. Uses pynput on a background thread. Close is triggered via `_close_sig = pyqtSignal()` emitted from the pynput thread — this is the correct cross-thread pattern. Never call `QTimer.singleShot` from a pynput callback.
+- **Dropdown arrow**: `QComboBox::down-arrow` requires `image: url(...)` — the CSS border triangle trick does not work in Qt QSS.
+
+### Hotkey Listener (`hotkey_listener.py`)
+Uses the `keyboard` library with `suppress=True` on `add_hotkey()` so the combo is consumed and never leaks to other apps.
+
+**Release detection via polling**: `on_release_key` is NOT used. When `suppress=True`, the keyboard library's hook intercepts both press and release events, so `on_release_key` callbacks may never fire. Instead, when the hotkey fires, a polling thread is spawned that calls `keyboard.is_pressed(combo_str)` every 20ms. `keyboard.is_pressed()` reads the library's internal key-state table (updated before suppression decisions), so it correctly reflects the physical key state even with suppression active. Do NOT use `GetAsyncKeyState` — it reads OS-level state which is not updated for suppressed events.
 
 ### Overlay (`overlay.py`)
 Frameless translucent pill window (`Qt.Tool` + `WA_TranslucentBackground`).
@@ -88,20 +99,17 @@ Frameless translucent pill window (`Qt.Tool` + `WA_TranslucentBackground`).
 
 ### Tray Icon (`tray_icon.py`)
 `QSystemTrayIcon` — runs on the main thread. No pystray.
-- `set_state("IDLE"|"RECORDING"|"TRANSCRIBING"|"ERROR")` updates icon color and tooltip.
-- `update_hotkey_tooltip()` called after settings save to reflect new hotkey combo.
-
-### Hotkey Listener (`hotkey_listener.py`)
-Uses the `keyboard` library with `suppress=True` on `add_hotkey()` so the hotkey combo is fully consumed and never leaks to other applications. pynput is only used inside `_HotkeyCapture` for the one-shot capture dialog.
+- `set_state("IDLE"|"RECORDING"|"TRANSCRIBING"|"ERROR")` updates icon and tooltip.
+- `update_hotkey_tooltip()` called after settings save.
 
 ## Configuration
 
 `config.json` is auto-created with defaults on first run. Key tuning knobs:
-- `transcription.vad_silence_ms` (default 300) — ms of silence before a speech segment is committed. Lower = more frequent text appearance but more fragmented.
-- `transcription.vad_threshold` (default 0.5) — VAD sensitivity (0.0–1.0). Lower catches quieter voices.
+- `transcription.vad_silence_ms` (default 600) — ms of silence before a speech segment is auto-committed mid-recording. Only affects behaviour while the hotkey is held; on release, VAD is disabled before the final commit so this doesn't add latency.
+- `transcription.vad_threshold` (default 0.5) — VAD sensitivity (0.0–1.0).
 - `audio.min_duration_seconds` (default 0.3) — ignores accidental short presses.
 
 ## Known Limitations
 - UAC-elevated windows (Task Manager, etc.) cannot receive pasted text without running the app elevated.
-- The `input_audio_buffer_commit_empty` error from the OpenAI API is silently ignored — it occurs on very short/silent hotkey presses and is harmless.
-- Mica effect requires Windows 11. On Windows 10 the window falls back to a solid dark background.
+- The `input_audio_buffer_commit_empty` error from the OpenAI API is silently ignored — it occurs on very short/silent presses and is harmless.
+- Native title bar dark mode requires Windows 10 build 17763+ (October 2018 Update).
