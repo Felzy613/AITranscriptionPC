@@ -9,12 +9,15 @@ block_cipher = None
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
-    binaries=[],
+    pathex=[str(Path(__file__).resolve().parent)],
+    binaries=[
+        ('venv/Lib/site-packages/_sounddevice_data/portaudio-binaries/libportaudio64bit.dll', '_sounddevice_data/portaudio-binaries'),
+        ('venv/Lib/site-packages/_sounddevice_data/portaudio-binaries/libportaudio64bit-asio.dll', '_sounddevice_data/portaudio-binaries'),
+        ('venv/Lib/site-packages/_soundfile_data/libsndfile_x64.dll', '_soundfile_data'),
+    ],
     datas=[
         ('assets', 'assets'),
         ('.env.example', '.'),
-        ('venv/Lib/site-packages/_sounddevice_data', '_sounddevice_data'),
     ],
     hiddenimports=[
         'PyQt6.QtCore',

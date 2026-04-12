@@ -20,8 +20,19 @@ Write-Host "Activating venv and installing dependencies..." -ForegroundColor Yel
 & ".\venv\Scripts\python.exe" -m pip install -r requirements.txt --quiet
 & ".\venv\Scripts\python.exe" -m pip install pyinstaller --quiet
 
-Write-Host "Compiling Python to executable..." -ForegroundColor Yellow
-& ".\venv\Scripts\pyinstaller.exe" --clean --noconfirm build-spec.spec
+$arch = Read-Host "Select target architecture [x64/x86] (default x64)"
+if ([string]::IsNullOrWhiteSpace($arch)) {
+    $arch = 'x64'
+}
+$arch = $arch.Trim().ToLower()
+if ($arch -eq 'x86' -or $arch -eq 'i386') {
+    $pyInstallerArch = 'x86'
+} else {
+    $pyInstallerArch = 'x64'
+}
+
+Write-Host "Compiling Python to executable for $pyInstallerArch..." -ForegroundColor Yellow
+& ".\venv\Scripts\pyinstaller.exe" --clean --noconfirm --target-architecture $pyInstallerArch build-spec.spec
 
 # Check for Inno Setup
 $IsccCandidates = @(
