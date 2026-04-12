@@ -1,5 +1,6 @@
 import sys
 import threading
+import os
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore    import QObject, pyqtSignal
@@ -12,6 +13,8 @@ from hotkey_listener import HotkeyListener
 from overlay import OverlayWindow
 from tray_icon import TrayIcon
 from settings_dialog import SettingsDialog
+from secure_storage import SecureStorage
+from api_key_setup import APIKeySetupDialog
 
 
 # ---------------------------------------------------------------------------
@@ -28,21 +31,34 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
+    # --- Secure API Key Management ---
+    secure_storage = SecureStorage()
+    api_key = secure_storage.get_api_key()
+    
+    # If no encrypted API key exists, show setup dialog
+    if not api_key:
+        setup_dialog = APIKeySetupDialog()
+        setup_dialog.api_key_set.connect(secure_storage.set_api_key)
+        
+        if setup_dialog.exec() != APIKeySetupDialog.DialogCode.Accepted:
+            # User closed without entering key
+            sys.exit(0)
+        
+        api_key = secure_storage.get_api_key()
+        if not api_key:
+            QMessageBox.critical(
+                None,
+                "Setup Required",
+                "You must enter a valid OpenAI API key to use this application."
+            )
+            sys.exit(1)
+    
+    # Set API key as environment variable for openai library
+    os.environ["OPENAI_API_KEY"] = api_key
+
     # --- Load config ---
     config_mgr = ConfigManager()
     config = config_mgr.load()
-    api_key = config_mgr.get_api_key()
-
-    if not api_key:
-        QMessageBox.critical(
-            None,
-            "Missing API Key",
-            "OPENAI_API_KEY not found or is a placeholder.\n\n"
-            "Please create or edit the .env file in the app folder:\n"
-            "  OPENAI_API_KEY=sk-proj-your-real-key-here\n\n"
-            "Get your key at: https://platform.openai.com/api-keys",
-        )
-        sys.exit(1)
 
     # --- Shared state ---
     state = AppState()

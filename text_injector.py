@@ -1,8 +1,8 @@
 import time
 import threading
 
-import pyautogui
 import pyperclip
+from pynput.keyboard import Controller as KeyboardController, Key
 
 
 class TextInjector:
@@ -12,6 +12,7 @@ class TextInjector:
 
     _paste_lock = threading.Lock()
     _saved_clipboard: str = ""
+    _keyboard = KeyboardController()
 
     # ------------------------------------------------------------------ #
     # Batch mode (original behaviour)                                      #
@@ -30,8 +31,11 @@ class TextInjector:
 
             try:
                 pyperclip.copy(text)
-                time.sleep(self.PASTE_DELAY)
-                pyautogui.hotkey("ctrl", "v")
+                # Use pynput to send Ctrl+V
+                self._keyboard.press(Key.ctrl)
+                self._keyboard.press('v')
+                self._keyboard.release('v')
+                self._keyboard.release(Key.ctrl)
                 time.sleep(self.RESTORE_DELAY)
             finally:
                 try:
@@ -59,7 +63,10 @@ class TextInjector:
             try:
                 pyperclip.copy(delta)
                 time.sleep(self.STREAM_PASTE_DELAY)
-                pyautogui.hotkey("ctrl", "v")
+                self._keyboard.press(Key.ctrl)
+                self._keyboard.press('v')
+                self._keyboard.release('v')
+                self._keyboard.release(Key.ctrl)
             except Exception:
                 pass
 
