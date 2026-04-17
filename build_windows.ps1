@@ -1,7 +1,20 @@
+param(
+    [ValidateSet("x64", "x86")]
+    [string]$TargetArchitecture,
+
+    [switch]$SkipInstaller
+)
+
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
+
+$VersionMatch = Select-String -Path ".\setup.iss" -Pattern '^#define MyAppVersion "(.+)"$'
+if (-not $VersionMatch) {
+    throw "Could not determine app version from setup.iss"
+}
+$AppVersion = $VersionMatch.Matches[0].Groups[1].Value
 
 Write-Host ""
 Write-Host "==========================================" -ForegroundColor Cyan
@@ -20,12 +33,12 @@ Write-Host "Activating venv and installing dependencies..." -ForegroundColor Yel
 & ".\venv\Scripts\python.exe" -m pip install -r requirements.txt --quiet
 & ".\venv\Scripts\python.exe" -m pip install pyinstaller --quiet
 
-$arch = Read-Host "Select target architecture [x64/x86] (default x64)"
-if ([string]::IsNullOrWhiteSpace($arch)) {
-    $arch = 'x64'
+if ([string]::IsNullOrWhiteSpace($TargetArchitecture)) {
+    $TargetArchitecture = Read-Host "Select target architecture [x64/x86] (default x64)"
 }
-$arch = $arch.Trim().ToLower()
-if ($arch -eq 'x86' -or $arch -eq 'i386') {
+$TargetArchitecture = if ([string]::IsNullOrWhiteSpace($TargetArchitecture)) { "x64" } else { $TargetArchitecture.Trim().ToLower() }
+
+if ($TargetArchitecture -eq 'x86' -or $TargetArchitecture -eq 'i386') {
     $pyInstallerArch = 'x86'
 } else {
     $pyInstallerArch = 'x64'
@@ -33,6 +46,23 @@ if ($arch -eq 'x86' -or $arch -eq 'i386') {
 
 Write-Host "Compiling Python to executable for $pyInstallerArch..." -ForegroundColor Yellow
 & ".\venv\Scripts\pyinstaller.exe" --clean --noconfirm --target-architecture $pyInstallerArch build-spec.spec
+
+if ($pyInstallerArch -eq 'x86' -and -not $SkipInstaller) {
+    throw "The Inno Setup installer is currently configured for x64 only. Re-run with -SkipInstaller for x86 builds."
+}
+
+if ($SkipInstaller) {
+    Write-Host ""
+    Write-Host "Skipping installer build." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "==========================================" -ForegroundColor Green
+    Write-Host "  Build Complete!" -ForegroundColor Green
+    Write-Host "==========================================" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  Executable:  dist\AITranscriptionPC\AI Transcription PC.exe" -ForegroundColor Cyan
+    Write-Host ""
+    exit 0
+}
 
 # Check for Inno Setup
 $IsccCandidates = @(
@@ -60,5 +90,5 @@ Write-Host "  Build Complete!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Executable:  dist\AITranscriptionPC\AI Transcription PC.exe" -ForegroundColor Cyan
-Write-Host "  Installer:   dist-installer\AITranscriptionPCSetup-v1.0.1.exe" -ForegroundColor Cyan
+Write-Host "  Installer:   dist-installer\AITranscriptionPCSetup-v$AppVersion.exe" -ForegroundColor Cyan
 Write-Host ""
