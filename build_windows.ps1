@@ -60,5 +60,5 @@ Write-Host "  Build Complete!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Executable:  dist\AITranscriptionPC\AI Transcription PC.exe" -ForegroundColor Cyan
-Write-Host "  Installer:   dist-installer\AITranscriptionPCSetup.exe" -ForegroundColor Cyan
+Write-Host "  Installer:   dist-installer\AITranscriptionPCSetup-v1.0.1.exe" -ForegroundColor Cyan
 Write-Host ""

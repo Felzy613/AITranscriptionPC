@@ -31,19 +31,22 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
+    # --- Load config ---
+    config_mgr = ConfigManager()
+    config = config_mgr.load()
+
     # --- Secure API Key Management ---
     secure_storage = SecureStorage()
-    api_key = secure_storage.get_api_key()
-    
-    # If no encrypted API key exists, show setup dialog
+    api_key = secure_storage.get_api_key() or config_mgr.get_api_key()
+
+    # If no stored API key exists, show setup dialog.
     if not api_key:
-        setup_dialog = APIKeySetupDialog()
+        setup_dialog = APIKeySetupDialog(storage_description=secure_storage.storage_description())
         setup_dialog.api_key_set.connect(secure_storage.set_api_key)
-        
+
         if setup_dialog.exec() != APIKeySetupDialog.DialogCode.Accepted:
-            # User closed without entering key
             sys.exit(0)
-        
+
         api_key = secure_storage.get_api_key()
         if not api_key:
             QMessageBox.critical(
@@ -53,12 +56,8 @@ def main() -> None:
             )
             sys.exit(1)
     
-    # Set API key as environment variable for openai library
+    # Set API key as environment variable for the OpenAI client.
     os.environ["OPENAI_API_KEY"] = api_key
-
-    # --- Load config ---
-    config_mgr = ConfigManager()
-    config = config_mgr.load()
 
     # --- Shared state ---
     state = AppState()

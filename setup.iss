@@ -1,13 +1,15 @@
+#define MyAppVersion "1.0.1"
+
 [Setup]
 AppId={{F1A2E8D5-9C42-4E7B-A891-3D5F2E7B9C1A}}
 AppName=AI Transcription PC
-AppVersion=1.0.0
+AppVersion={#MyAppVersion}
 AppPublisher=AI Transcription
 DefaultDirName={localappdata}\Programs\AI Transcription PC
 DefaultGroupName=AI Transcription PC
 DisableProgramGroupPage=yes
 OutputDir=.\dist-installer
-OutputBaseFilename=AITranscriptionPCSetup
+OutputBaseFilename=AITranscriptionPCSetup-v{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

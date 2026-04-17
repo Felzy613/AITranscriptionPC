@@ -1,20 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec file for AI Transcription PC
-# This compiles the Python application into a standalone Windows executable
-
-import sys
+# This compiles the Python application into a standalone Windows executable.
 from pathlib import Path
 
 block_cipher = None
+site_packages = Path("venv/Lib/site-packages")
+
+
+def _existing_binaries() -> list[tuple[str, str]]:
+    binaries: list[tuple[str, str]] = []
+    for path in site_packages.glob("_sounddevice_data/portaudio-binaries/libportaudio*bit*.dll"):
+        binaries.append((str(path), "_sounddevice_data/portaudio-binaries"))
+    for path in site_packages.glob("_soundfile_data/libsndfile_*.dll"):
+        binaries.append((str(path), "_soundfile_data"))
+    return binaries
 
 a = Analysis(
     ['main.py'],
     pathex=[str(Path(__file__).resolve().parent)],
-    binaries=[
-        ('venv/Lib/site-packages/_sounddevice_data/portaudio-binaries/libportaudio64bit.dll', '_sounddevice_data/portaudio-binaries'),
-        ('venv/Lib/site-packages/_sounddevice_data/portaudio-binaries/libportaudio64bit-asio.dll', '_sounddevice_data/portaudio-binaries'),
-        ('venv/Lib/site-packages/_soundfile_data/libsndfile_x64.dll', '_soundfile_data'),
-    ],
+    binaries=_existing_binaries(),
     datas=[
         ('assets', 'assets'),
         ('.env.example', '.'),
@@ -32,14 +36,13 @@ a = Analysis(
         'pynput',
         'pyperclip',
         'websockets',
+        'PyQt6.QtSvg',
         'dotenv',
-        'cryptography',
-        'cryptography.fernet',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludedimports=[],
+    excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

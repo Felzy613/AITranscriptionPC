@@ -1,78 +1,128 @@
 """
-Encryption utilities for storing sensitive data (API keys) locally
-Uses Fernet (symmetric encryption) from cryptography library
+API key storage helpers.
+
+On Windows, API keys are protected with DPAPI so only the current user account
+can decrypt them. On other platforms, the data falls back to plain JSON storage
+for local development compatibility.
 """
 
-import os
+from __future__ import annotations
+
+import ctypes
 import json
-from cryptography.fernet import Fernet
 from pathlib import Path
 
 
+class _DataBlob(ctypes.Structure):
+    _fields_ = [
+        ("cbData", ctypes.c_uint32),
+        ("pbData", ctypes.POINTER(ctypes.c_ubyte)),
+    ]
+
+
 class SecureStorage:
-    """Encrypts and stores sensitive data locally"""
-    
-    def __init__(self):
+    """Stores sensitive app data locally."""
+
+    def __init__(self) -> None:
         self.config_dir = Path.home() / ".aitpc"
         self.config_dir.mkdir(exist_ok=True)
-        
-        self.key_file = self.config_dir / ".key"
-        self.data_file = self.config_dir / "config.enc"
-        
-        self._ensure_encryption_key()
-    
-    def _ensure_encryption_key(self):
-        """Create encryption key if it doesn't exist"""
-        if not self.key_file.exists():
-            key = Fernet.generate_key()
-            self.key_file.write_bytes(key)
-            # Protect key file on Windows
-            if os.name == 'nt':
-                os.system(f'attrib +h "{self.key_file}"')  # Hide file
-    
-    def _get_cipher(self):
-        """Get Fernet cipher using stored key"""
-        key = self.key_file.read_bytes()
-        return Fernet(key)
-    
-    def save(self, data: dict):
-        """Encrypt and save data"""
-        cipher = self._get_cipher()
-        json_data = json.dumps(data).encode()
-        encrypted = cipher.encrypt(json_data)
-        self.data_file.write_bytes(encrypted)
-    
+
+        windll = getattr(ctypes, "windll", None)
+        if windll is not None and hasattr(windll, "crypt32"):
+            self.data_file = self.config_dir / "config.dpapi"
+            self._mode = "dpapi"
+        else:
+            self.data_file = self.config_dir / "config.json"
+            self._mode = "plain"
+
+    def save(self, data: dict) -> None:
+        """Save data using the best protection available on this platform."""
+        payload = json.dumps(data).encode("utf-8")
+        if self._mode == "dpapi":
+            self.data_file.write_bytes(self._protect(payload))
+        else:
+            self.data_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
     def load(self) -> dict:
-        """Decrypt and load data"""
+        """Load saved data, returning an empty dict if none is available."""
         if not self.data_file.exists():
             return {}
-        
+
         try:
-            cipher = self._get_cipher()
-            encrypted = self.data_file.read_bytes()
-            json_data = cipher.decrypt(encrypted)
-            return json.loads(json_data.decode())
-        except Exception as e:
-            print(f"Error decrypting config: {e}")
+            if self._mode == "dpapi":
+                payload = self._unprotect(self.data_file.read_bytes())
+                return json.loads(payload.decode("utf-8"))
+            return json.loads(self.data_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"Error loading secure config: {exc}")
             return {}
-    
+
     def has_api_key(self) -> bool:
-        """Check if API key is stored"""
         data = self.load()
-        return "api_key" in data and data["api_key"]
-    
+        return bool(data.get("api_key"))
+
     def get_api_key(self) -> str:
-        """Get stored API key"""
         data = self.load()
         return data.get("api_key", "")
-    
-    def set_api_key(self, key: str):
-        """Store API key encrypted"""
+
+    def set_api_key(self, key: str) -> None:
         data = self.load()
         data["api_key"] = key
         self.save(data)
-    
-    def clear(self):
-        """Clear all stored data"""
+
+    def clear(self) -> None:
         if self.data_file.exists():
             self.data_file.unlink()
+
+    def storage_description(self) -> str:
+        if self._mode == "dpapi":
+            return "Stored securely using your Windows account."
+        return "Stored locally for development use on this machine."
+
+    def _protect(self, payload: bytes) -> bytes:
+        in_buffer = ctypes.create_string_buffer(payload)
+        in_blob = _DataBlob(
+            len(payload),
+            ctypes.cast(in_buffer, ctypes.POINTER(ctypes.c_ubyte)),
+        )
+        out_blob = _DataBlob()
+
+        if not ctypes.windll.crypt32.CryptProtectData(
+            ctypes.byref(in_blob),
+            "AI Transcription PC",
+            None,
+            None,
+            None,
+            0,
+            ctypes.byref(out_blob),
+        ):
+            raise ctypes.WinError()
+
+        try:
+            return ctypes.string_at(out_blob.pbData, out_blob.cbData)
+        finally:
+            ctypes.windll.kernel32.LocalFree(out_blob.pbData)
+
+    def _unprotect(self, payload: bytes) -> bytes:
+        in_buffer = ctypes.create_string_buffer(payload)
+        in_blob = _DataBlob(
+            len(payload),
+            ctypes.cast(in_buffer, ctypes.POINTER(ctypes.c_ubyte)),
+        )
+        out_blob = _DataBlob()
+
+        if not ctypes.windll.crypt32.CryptUnprotectData(
+            ctypes.byref(in_blob),
+            None,
+            None,
+            None,
+            None,
+            0,
+            ctypes.byref(out_blob),
+        ):
+            raise ctypes.WinError()
+
+        try:
+            return ctypes.string_at(out_blob.pbData, out_blob.cbData)
+        finally:
+            ctypes.windll.kernel32.LocalFree(out_blob.pbData)

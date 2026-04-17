@@ -4,11 +4,11 @@ Forces user to enter and verify their OpenAI API key before app can run
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QMessageBox, QProgressBar
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtGui import QFont
 from openai import OpenAI, AuthenticationError
 
 
@@ -39,16 +39,15 @@ class APIKeySetupDialog(QDialog):
     
     api_key_set = pyqtSignal(str)  # Emitted when key is successfully set
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, storage_description: str = ""):
         super().__init__(parent)
         self.setWindowTitle("API Key Setup - AI Transcription PC")
         self.setModal(True)
         self.setMinimumWidth(500)
         self.verifier = None
-        
-        # Don't allow closing without entering key
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowCloseButtonHint)
-        
+        self._is_verifying = False
+        self._storage_description = storage_description
+
         self.init_ui()
     
     def init_ui(self):
@@ -67,7 +66,7 @@ class APIKeySetupDialog(QDialog):
             "This app requires an OpenAI API key to transcribe audio.\n\n"
             "1. Get your free API key at: https://platform.openai.com/api-keys\n"
             "2. Paste it below\n"
-            "3. The key is encrypted and stored locally on your computer\n"
+            f"3. {self._storage_description or 'Stored locally on your computer.'}\n"
             "4. Never shared with anyone except OpenAI"
         )
         instructions.setWordWrap(True)
@@ -102,8 +101,13 @@ class APIKeySetupDialog(QDialog):
         
         # Buttons
         button_layout = QHBoxLayout()
+
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(self.cancel_btn)
+
         button_layout.addStretch()
-        
+
         self.verify_btn = QPushButton("Verify & Continue")
         self.verify_btn.setMinimumWidth(150)
         self.verify_btn.clicked.connect(self.verify_and_save)
@@ -141,10 +145,12 @@ class APIKeySetupDialog(QDialog):
         
         # Verify the key is valid
         self.verify_btn.setEnabled(False)
+        self.cancel_btn.setEnabled(False)
         self.key_input.setEnabled(False)
         self.progress.setVisible(True)
         self.status_label.setText("Verifying API key...")
-        
+        self._is_verifying = True
+
         self.verifier = APIKeyVerifier(api_key)
         self.verifier.success.connect(lambda: self._on_verify_success(api_key))
         self.verifier.error.connect(self._on_verify_error)
@@ -152,6 +158,7 @@ class APIKeySetupDialog(QDialog):
     
     def _on_verify_success(self, api_key: str):
         """Called when API key is verified"""
+        self._is_verifying = False
         self.progress.setVisible(False)
         self.status_label.setText("✓ API key verified!")
         self.api_key_set.emit(api_key)
@@ -159,12 +166,15 @@ class APIKeySetupDialog(QDialog):
     
     def _on_verify_error(self, error_msg: str):
         """Called when API key verification fails"""
+        self._is_verifying = False
         self.verify_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(True)
         self.key_input.setEnabled(True)
         self.progress.setVisible(False)
         self.status_label.setText("")
         QMessageBox.critical(self, "Verification Failed", error_msg)
-    
-    def closeEvent(self, event):
-        """Prevent closing without entering key"""
-        event.ignore()
+
+    def reject(self):
+        if self._is_verifying:
+            return
+        super().reject()

@@ -39,7 +39,7 @@ class TranscriptionClient:
                 result = self._client.audio.transcriptions.create(**kwargs)
                 return result.text.strip()
             except AuthenticationError:
-                raise TranscriptionError("Invalid API key. Check your .env file.")
+                raise TranscriptionError("Invalid API key. Update your saved key or .env file.")
             except RateLimitError:
                 raise TranscriptionError("OpenAI quota exceeded. Check your billing at platform.openai.com.")
             except APIConnectionError:

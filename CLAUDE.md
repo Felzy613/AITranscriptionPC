@@ -30,7 +30,7 @@ Always use **backslashes** in CMD, **forward slashes** in bash/PowerShell.
 install.bat          # Creates venv, installs requirements.txt
 ```
 
-Requires a `.env` file with `OPENAI_API_KEY=sk-...` in the project root.
+Developer setup can use a `.env` file with `OPENAI_API_KEY=sk-...`, but the app also supports entering the key on first launch. On Windows, the saved key is protected with DPAPI.
 
 ## Architecture
 

@@ -49,18 +49,17 @@ git clone https://github.com/YosefDM/AITranscriptionPC.git
 cd AITranscriptionPC
 ```
 
-**2. Add your API key**
-
-Create a `.env` file in the project root:
-```
-OPENAI_API_KEY=sk-proj-your-key-here
-```
-
-**3. Install dependencies**
+**2. Install dependencies**
 ```cmd
 install.bat
 ```
-This creates a `venv` and installs everything from `requirements.txt`.
+This creates a `venv`, installs everything from `requirements.txt`, and copies `.env.example` to `.env` if you want to preconfigure a key.
+
+**3. Add your API key**
+
+Use either option:
+- Put `OPENAI_API_KEY=sk-proj-your-key-here` in `.env`
+- Or launch the app and enter the key in the first-run setup dialog
 
 **4. Run**
 ```cmd
@@ -68,6 +67,7 @@ venv\Scripts\python.exe main.py
 ```
 
 The app starts in the system tray. Right-click the tray icon to open Settings.
+On Windows, keys entered through the setup dialog are stored using your Windows user account via DPAPI.
 
 ---
 
