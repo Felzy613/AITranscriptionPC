@@ -4,6 +4,7 @@
 from pathlib import Path
 
 block_cipher = None
+project_root = Path.cwd().resolve()
 site_packages = Path("venv/Lib/site-packages")
 
 
@@ -17,7 +18,7 @@ def _existing_binaries() -> list[tuple[str, str]]:
 
 a = Analysis(
     ['main.py'],
-    pathex=[str(Path(__file__).resolve().parent)],
+    pathex=[str(project_root)],
     binaries=_existing_binaries(),
     datas=[
         ('assets', 'assets'),
