@@ -6,6 +6,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $true
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
@@ -39,16 +40,17 @@ if ([string]::IsNullOrWhiteSpace($TargetArchitecture)) {
 $TargetArchitecture = if ([string]::IsNullOrWhiteSpace($TargetArchitecture)) { "x64" } else { $TargetArchitecture.Trim().ToLower() }
 
 if ($TargetArchitecture -eq 'x86' -or $TargetArchitecture -eq 'i386') {
-    $pyInstallerArch = 'x86'
+    throw "Spec-based builds currently support x64 only."
 } else {
     $pyInstallerArch = 'x64'
 }
 
 Write-Host "Compiling Python to executable for $pyInstallerArch..." -ForegroundColor Yellow
-& ".\venv\Scripts\pyinstaller.exe" --clean --noconfirm --target-architecture $pyInstallerArch build-spec.spec
+& ".\venv\Scripts\pyinstaller.exe" --clean --noconfirm build-spec.spec
 
-if ($pyInstallerArch -eq 'x86' -and -not $SkipInstaller) {
-    throw "The Inno Setup installer is currently configured for x64 only. Re-run with -SkipInstaller for x86 builds."
+$BuiltExe = ".\dist\AITranscriptionPC\AI Transcription PC.exe"
+if (-not (Test-Path $BuiltExe)) {
+    throw "PyInstaller build did not produce $BuiltExe"
 }
 
 if ($SkipInstaller) {
@@ -84,11 +86,16 @@ if (-not $Iscc) {
 Write-Host "Building installer with Inno Setup..." -ForegroundColor Yellow
 & $Iscc ".\setup.iss"
 
+$BuiltInstaller = ".\dist-installer\AITranscriptionPCSetup-v$AppVersion.exe"
+if (-not (Test-Path $BuiltInstaller)) {
+    throw "Installer build did not produce $BuiltInstaller"
+}
+
 Write-Host ""
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host "  Build Complete!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Executable:  dist\AITranscriptionPC\AI Transcription PC.exe" -ForegroundColor Cyan
-Write-Host "  Installer:   dist-installer\AITranscriptionPCSetup-v$AppVersion.exe" -ForegroundColor Cyan
+Write-Host "  Executable:  $BuiltExe" -ForegroundColor Cyan
+Write-Host "  Installer:   $BuiltInstaller" -ForegroundColor Cyan
 Write-Host ""
