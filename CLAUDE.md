@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Source Control
+
+After every code change: update `CLAUDE.md` if the architecture or behavior changed, commit all affected files together, and push to `origin/master`. Local and remote must always stay in sync.
+
 ## Running the App
 
 ```cmd
