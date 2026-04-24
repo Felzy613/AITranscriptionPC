@@ -10,7 +10,7 @@ _ARROW_DOWN = os.path.join(_DIR, "arrow_down.svg").replace("\\", "/")
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea,
-    QFrame, QLabel, QPushButton, QComboBox, QSlider,
+    QFrame, QLabel, QPushButton, QComboBox, QSlider, QLineEdit,
     QAbstractButton, QSizePolicy, QApplication, QStyleOptionSlider, QStyle,
 )
 from PyQt6.QtCore    import (
@@ -115,6 +115,17 @@ QComboBox QAbstractItemView {{
     outline: none;
     padding: 4px;
 }}
+
+QLineEdit {{
+    background: {INPUT_BG};
+    border: 1px solid {BORDER};
+    border-bottom: 2px solid rgba(255,255,255,0.35);
+    border-radius: 4px;
+    padding: 5px 10px;
+    color: {FG};
+}}
+QLineEdit:hover {{ border-bottom-color: rgba(255,255,255,0.6); }}
+QLineEdit:focus {{ border-bottom-color: {ACCENT}; }}
 
 QSlider::groove:horizontal {{
     height: 4px; border-radius: 2px; background: #999999;
@@ -408,6 +419,13 @@ class SettingsWindow(QWidget):
         right = self._row(grp, "Transcription language", "Select primary language or auto-detect")
         self._lang_cb = self._add_combo(right, LANGUAGES,
             _label_for(LANGUAGES, self._config["transcription"]["language"]))
+        self._divider(grp)
+        self._prompt_edit = self._add_prompt_row(
+            grp,
+            "Transcription hint",
+            "Names, terms, or style notes to help the model (optional)",
+            self._config["transcription"].get("prompt", ""),
+        )
         c_lay.addWidget(grp)
         c_lay.addSpacing(24)
 
@@ -580,6 +598,25 @@ class SettingsWindow(QWidget):
         return tog
 
     @staticmethod
+    def _add_prompt_row(group: QFrame, title: str, desc: str, value: str) -> QLineEdit:
+        container = QWidget()
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(16, 12, 16, 12)
+        lay.setSpacing(6)
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet(f"font-size: 13px; color: {FG};")
+        lay.addWidget(title_lbl)
+        desc_lbl = QLabel(desc)
+        desc_lbl.setStyleSheet(f"font-size: 12px; color: {FG_DIM};")
+        lay.addWidget(desc_lbl)
+        edit = QLineEdit()
+        edit.setPlaceholderText("e.g. Names: John, Sarah. Terms: API, VAD, gpt-4o.")
+        edit.setText(value)
+        lay.addWidget(edit)
+        group.layout().addWidget(container)
+        return edit
+
+    @staticmethod
     def _add_slider(parent: QWidget, min_v: int, max_v: int, step: int,
                     value: int, fmt) -> tuple:
         sl = _Slider(parent)
@@ -654,6 +691,7 @@ class SettingsWindow(QWidget):
         cfg = self._config
         cfg["transcription"]["model"]          = _value_for(MODELS, self._model_cb.currentText())
         cfg["transcription"]["language"]       = _value_for(LANGUAGES, self._lang_cb.currentText())
+        cfg["transcription"]["prompt"]         = self._prompt_edit.text().strip()
         cfg["transcription"]["vad_silence_ms"] = self._vad_ms_sl.value()
         cfg["transcription"]["vad_threshold"]  = round(self._vad_thr_sl.value() / 100, 2)
         cfg["ui"]["show_overlay"]              = self._overlay_tog.isChecked()
