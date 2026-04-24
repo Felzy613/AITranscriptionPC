@@ -64,8 +64,9 @@ Worker threads must never touch Qt widgets directly. Mechanisms used:
 2. WebSocket connects to `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview`.
 3. Session configured with `input_audio_transcription.model = gpt-4o-transcribe` and server VAD.
 4. `_flush_prebuffer()` sends all pre-captured audio; `_send_audio()` continues streaming live.
-5. Server VAD emits `conversation.item.input_audio_transcription.delta` events → each delta is injected via `run_in_executor` (off the event loop) so `_send_audio` is never starved.
-6. **Hotkey released** → duration since press is checked against `min_duration_seconds`. If too short, `cancel()` is called — this sets `_cancelled = True` then calls `stop()`, and `_session()` exits before the commit step. State returns to IDLE with no API call. For normal releases, `stop()` is called → mic stops, `_stop_event` set. Before committing, sends `session.update` with `turn_detection: None` to disable server VAD — this prevents the server from waiting out its silence window (e.g. 600ms) before processing the final audio. Then commits remaining audio via `input_audio_buffer.commit`.
+5. Server VAD emits `input_audio_buffer.committed` for each segment it commits (mid-recording pauses), and `conversation.item.input_audio_transcription.delta` events as transcription streams. Deltas are passed directly to `_on_delta` (fast buffer-append, no executor needed).
+6. **Hotkey released** → duration checked against `min_duration_seconds`. Short press → `cancel()`. Normal release → `stop()` → mic stops, `_stop_event` set → VAD disabled via `session.update`, final audio committed via `input_audio_buffer.commit`.
+7. `_receive_events` tracks `_pending_segments`: incremented on each `input_audio_buffer.committed`, decremented on each `transcription.completed`. Only exits when `_pending_segments <= 0` AND `_stop_event` is set — this ensures mid-recording VAD segments that were in flight when the hotkey was released are fully received before the session closes.
 
 **Race condition guard**: `_stop_requested` flag is set in `stop()`. If `stop()` is called before `_session()` has created `_stop_event`, the flag causes `_stop_event` to be set immediately when it's created.
 
@@ -73,7 +74,7 @@ Worker threads must never touch Qt widgets directly. Mechanisms used:
 
 **Two separate model names**: The WebSocket URL uses `REALTIME_MODEL = "gpt-4o-realtime-preview"`; transcription quality is set by `gpt-4o-transcribe` (or `gpt-4o-mini-transcribe`) inside the session config.
 
-**Do not block the asyncio event loop from `_receive_events`**: The delta callback (`_on_delta`) calls `inject_delta` which uses `time.sleep`. Always call it via `await loop.run_in_executor(None, self._on_delta, delta)` — blocking the event loop starves `_send_audio`, creating apparent audio gaps that trigger premature VAD commits on the server.
+**Transcription prompt**: A baseline prompt ("Transcribe with natural punctuation and capitalization.") is always prepended to whatever the user configures. This guides the Whisper model's output style even when the user hasn't set a custom prompt.
 
 ### Text Injection (`text_injector.py`)
 Streaming mode only (batch mode exists but is unused in the main flow):

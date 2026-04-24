@@ -5,10 +5,10 @@ Key design decisions:
 - Audio capture starts IMMEDIATELY on hotkey press, before WebSocket connects.
   Chunks are buffered locally and flushed once the session is ready, so the
   first words are never lost to connection setup time (~1-2 seconds).
-- Server VAD silence_duration (500ms) balances responsiveness with stability —
-  tight enough to commit segments mid-recording, loose enough to avoid splitting
-  natural mid-sentence pauses.
-- Transcription deltas from each VAD segment are injected as they stream in.
+- Server VAD silence_duration (500ms) balances responsiveness with stability.
+- Each server-committed segment is tracked; _receive_events exits only after all
+  pending completions arrive, preventing word loss from multi-segment recordings.
+- Transcription deltas are injected into a batching flusher (80ms intervals).
 
 Audio format required by OpenAI Realtime API: PCM16, 24 kHz, mono.
 """
@@ -57,6 +57,13 @@ class RealtimeTranscriber:
         self._session_ready: asyncio.Event | None = None
         self._stop_requested = False  # True if stop() called before _session() created _stop_event
         self._cancelled = False       # True if cancel() called — skip audio commit
+
+        # Tracks server-committed segments vs completed transcriptions.
+        # Each "input_audio_buffer.committed" from the server increments this;
+        # each "transcription.completed" decrements it. _receive_events exits
+        # only when this reaches 0 with stop_event set, ensuring all in-flight
+        # VAD segments are fully received before we close.
+        self._pending_segments = 0
 
         # Audio captured before WebSocket is ready is stored here
         self._pre_buffer: deque[bytes] = deque()
@@ -203,23 +210,27 @@ class RealtimeTranscriber:
             if event.get("type") == "error":
                 raise RuntimeError(str(event.get("error", "Session creation failed")))
 
+        transcription_cfg: dict = {
+            "model": self._model,
+            # Always send a prompt — guides punctuation and style even when empty.
+            # User-supplied prompt appended after the baseline.
+            "prompt": ("Transcribe with natural punctuation and capitalization. "
+                       + self._prompt).strip(),
+        }
+        if self._language:
+            transcription_cfg["language"] = self._language
+
         session_cfg: dict = {
             "modalities": ["text"],
             "input_audio_format": "pcm16",
-            "input_audio_transcription": {
-                "model": self._model,
-            },
+            "input_audio_transcription": transcription_cfg,
             "turn_detection": {
                 "type": "server_vad",
                 "threshold": self._vad_threshold,
-                "prefix_padding_ms": 500,   # generous prefix so speech onset is captured
+                "prefix_padding_ms": 300,
                 "silence_duration_ms": self._vad_silence_ms,
             },
         }
-        if self._language:
-            session_cfg["input_audio_transcription"]["language"] = self._language
-        if self._prompt:
-            session_cfg["input_audio_transcription"]["prompt"] = self._prompt
 
         await ws.send(json.dumps({"type": "session.update", "session": session_cfg}))
 
@@ -296,27 +307,31 @@ class RealtimeTranscriber:
                 event = json.loads(raw)
                 t = event.get("type", "")
 
-                if t == "conversation.item.input_audio_transcription.delta":
+                if t == "input_audio_buffer.committed":
+                    # Server acknowledged a committed segment (VAD-triggered or explicit).
+                    # Increment so we know how many completions to wait for.
+                    self._pending_segments += 1
+
+                elif t == "conversation.item.input_audio_transcription.delta":
                     delta = event.get("delta", "")
                     if delta and self._on_delta:
-                        # Run in executor so time.sleep inside inject_delta doesn't
-                        # block the event loop and starve _send_audio of cycles
-                        await asyncio.get_event_loop().run_in_executor(
-                            None, self._on_delta, delta
-                        )
+                        # inject_delta is a fast buffer-append — no executor needed
+                        self._on_delta(delta)
 
                 elif t == "conversation.item.input_audio_transcription.completed":
                     transcript = event.get("transcript", "")
                     if self._on_complete:
                         self._on_complete(transcript)
-                    # If hotkey already released, this was the final segment
-                    if self._stop_event.is_set():
+                    self._pending_segments -= 1
+                    # Exit only when all committed segments have completed and the
+                    # hotkey has been released — prevents premature exit that drops
+                    # words from a second in-flight VAD segment.
+                    if self._pending_segments <= 0 and self._stop_event.is_set():
                         return
 
                 elif t == "error":
                     err = event.get("error", {})
                     code = err.get("code", "")
-                    # Ignore empty-buffer commits (very short/silent presses)
                     if code == "input_audio_buffer_commit_empty":
                         return
                     msg = err.get("message", str(err))
