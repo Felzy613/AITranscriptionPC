@@ -178,7 +178,7 @@ def main() -> None:
             model=config["transcription"]["model"],
             language=config["transcription"]["language"],
             vad_threshold=config["transcription"].get("vad_threshold", 0.5),
-            vad_silence_ms=config["transcription"].get("vad_silence_ms", 600),
+            vad_silence_ms=config["transcription"].get("vad_silence_ms", 500),
             prompt=config["transcription"].get("prompt", ""),
         )
 

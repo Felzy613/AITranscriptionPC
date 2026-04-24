@@ -5,8 +5,9 @@ Key design decisions:
 - Audio capture starts IMMEDIATELY on hotkey press, before WebSocket connects.
   Chunks are buffered locally and flushed once the session is ready, so the
   first words are never lost to connection setup time (~1-2 seconds).
-- Server VAD with short silence_duration (300ms) commits segments frequently
-  so text appears in near-real-time bursts rather than one big block at the end.
+- Server VAD silence_duration (500ms) balances responsiveness with stability —
+  tight enough to commit segments mid-recording, loose enough to avoid splitting
+  natural mid-sentence pauses.
 - Transcription deltas from each VAD segment are injected as they stream in.
 
 Audio format required by OpenAI Realtime API: PCM16, 24 kHz, mono.
@@ -40,7 +41,7 @@ class RealtimeTranscriber:
         model: str = "gpt-4o-transcribe",  # transcription model inside session
         language: str = "en",
         vad_threshold: float = 0.5,
-        vad_silence_ms: int = 300,          # short silence → more frequent commits
+        vad_silence_ms: int = 500,
         prompt: str = "",
     ):
         self._api_key = api_key

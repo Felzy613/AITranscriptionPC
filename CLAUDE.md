@@ -117,7 +117,7 @@ Frameless translucent pill window (`Qt.Tool` + `WA_TranslucentBackground`).
 ## Configuration
 
 `config.json` is auto-created with defaults on first run. Key tuning knobs:
-- `transcription.vad_silence_ms` (default 600) — ms of silence before a speech segment is auto-committed mid-recording. Only affects behaviour while the hotkey is held; on release, VAD is disabled before the final commit so this doesn't add latency.
+- `transcription.vad_silence_ms` (default 500) — ms of silence before a speech segment is auto-committed mid-recording. Only affects behaviour while the hotkey is held; on release, VAD is disabled before the final commit so this doesn't add latency.
 - `transcription.vad_threshold` (default 0.5) — VAD sensitivity (0.0–1.0).
 - `audio.min_duration_seconds` (default 0.3) — ignores accidental short presses.
 

@@ -414,10 +414,10 @@ class SettingsWindow(QWidget):
         # ── Voice activity ─────────────────────────────────────────────────────
         c_lay.addWidget(self._sec("Voice activity"))
         grp = self._group()
-        right = self._row(grp, "Silence timeout", "Stop after 300ms of silence")
+        right = self._row(grp, "Silence timeout", "Stop after 500ms of silence")
         self._vad_ms_sl, self._vad_ms_lbl = self._add_slider(
             right, 100, 1500, 50,
-            self._config["transcription"].get("vad_silence_ms", 300),
+            self._config["transcription"].get("vad_silence_ms", 500),
             lambda v: f"{v}ms")
         self._divider(grp)
         right = self._row(grp, "Detection threshold", "Sensitivity to your voice")
