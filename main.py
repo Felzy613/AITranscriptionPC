@@ -180,6 +180,7 @@ def main() -> None:
             vad_threshold=config["transcription"].get("vad_threshold", 0.5),
             vad_silence_ms=config["transcription"].get("vad_silence_ms", 500),
             prompt=config["transcription"].get("prompt", ""),
+            noise_reduction=config["transcription"].get("noise_reduction", "far_field"),
         )
 
         with _transcriber_lock:

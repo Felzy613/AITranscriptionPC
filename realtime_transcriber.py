@@ -43,6 +43,7 @@ class RealtimeTranscriber:
         vad_threshold: float = 0.5,
         vad_silence_ms: int = 500,
         prompt: str = "",
+        noise_reduction: str | None = "far_field",  # "near_field", "far_field", or None
     ):
         self._api_key = api_key
         self._model = model
@@ -50,6 +51,7 @@ class RealtimeTranscriber:
         self._vad_threshold = vad_threshold
         self._vad_silence_ms = vad_silence_ms
         self._prompt = prompt
+        self._noise_reduction = noise_reduction
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -230,6 +232,9 @@ class RealtimeTranscriber:
                 "prefix_padding_ms": 300,
                 "silence_duration_ms": self._vad_silence_ms,
             },
+            "input_audio_noise_reduction": (
+                {"type": self._noise_reduction} if self._noise_reduction else None
+            ),
         }
 
         await ws.send(json.dumps({"type": "session.update", "session": session_cfg}))

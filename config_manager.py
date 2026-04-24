@@ -19,7 +19,8 @@ DEFAULT_CONFIG = {
         "language": "en",
         "prompt": "",
         "vad_threshold": 0.5,
-        "vad_silence_ms": 500
+        "vad_silence_ms": 500,
+        "noise_reduction": "far_field"
     },
     "ui": {
         "show_overlay": True,

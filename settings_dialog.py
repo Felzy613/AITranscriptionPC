@@ -53,6 +53,11 @@ MODELS = [
     ("GPT-4o Transcribe", "gpt-4o-transcribe"),
     ("GPT-4o Mini Transcribe", "gpt-4o-mini-transcribe"),
 ]
+NOISE_REDUCTION = [
+    ("Laptop / computer mic", "far_field"),
+    ("Headset / close mic",   "near_field"),
+    ("Off",                   ""),
+]
 OVERLAY_POSITIONS = [
     ("Bottom-right", "bottom-right"), ("Bottom-left", "bottom-left"),
     ("Top-right",    "top-right"),    ("Top-left",    "top-left"),
@@ -420,6 +425,10 @@ class SettingsWindow(QWidget):
         self._lang_cb = self._add_combo(right, LANGUAGES,
             _label_for(LANGUAGES, self._config["transcription"]["language"]))
         self._divider(grp)
+        right = self._row(grp, "Noise reduction", "Match to your microphone type")
+        self._noise_cb = self._add_combo(right, NOISE_REDUCTION,
+            _label_for(NOISE_REDUCTION, self._config["transcription"].get("noise_reduction", "far_field")))
+        self._divider(grp)
         self._prompt_edit = self._add_prompt_row(
             grp,
             "Transcription hint",
@@ -689,10 +698,11 @@ class SettingsWindow(QWidget):
 
     def _save(self) -> None:
         cfg = self._config
-        cfg["transcription"]["model"]          = _value_for(MODELS, self._model_cb.currentText())
-        cfg["transcription"]["language"]       = _value_for(LANGUAGES, self._lang_cb.currentText())
-        cfg["transcription"]["prompt"]         = self._prompt_edit.text().strip()
-        cfg["transcription"]["vad_silence_ms"] = self._vad_ms_sl.value()
+        cfg["transcription"]["model"]           = _value_for(MODELS, self._model_cb.currentText())
+        cfg["transcription"]["language"]        = _value_for(LANGUAGES, self._lang_cb.currentText())
+        cfg["transcription"]["noise_reduction"] = _value_for(NOISE_REDUCTION, self._noise_cb.currentText()) or None
+        cfg["transcription"]["prompt"]          = self._prompt_edit.text().strip()
+        cfg["transcription"]["vad_silence_ms"]  = self._vad_ms_sl.value()
         cfg["transcription"]["vad_threshold"]  = round(self._vad_thr_sl.value() / 100, 2)
         cfg["ui"]["show_overlay"]              = self._overlay_tog.isChecked()
         cfg["ui"]["overlay_position"]          = _value_for(OVERLAY_POSITIONS, self._pos_cb.currentText())
