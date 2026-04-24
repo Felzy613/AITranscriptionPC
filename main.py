@@ -1,5 +1,6 @@
 import sys
 import threading
+import time
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore    import QObject, pyqtSignal
@@ -50,6 +51,8 @@ def main() -> None:
 
     active_transcriber: RealtimeTranscriber | None = None
     _transcriber_lock = threading.Lock()
+    _press_time: float = 0.0
+    _error_timer: threading.Timer | None = None
 
     # --- UI objects ---
     overlay = OverlayWindow(
@@ -124,15 +127,28 @@ def main() -> None:
         pass  # Deltas already injected; cleanup handled in on_session_done
 
     def on_error(msg: str) -> None:
+        nonlocal _error_timer
+
+        # Cancel any pending auto-reset from a previous error
+        if _error_timer is not None:
+            _error_timer.cancel()
+            _error_timer = None
+
         state.set_state(RecordingState.ERROR)
         state.last_error = msg
         _set_ui("ERROR", msg)
         injector.end_stream()
 
-        import time
-        time.sleep(3)
-        state.set_state(RecordingState.IDLE)
-        _set_ui("IDLE")
+        def _reset():
+            nonlocal _error_timer
+            _error_timer = None
+            if state.get_state() == RecordingState.ERROR:
+                state.set_state(RecordingState.IDLE)
+                _set_ui("IDLE")
+
+        _error_timer = threading.Timer(3.0, _reset)
+        _error_timer.daemon = True
+        _error_timer.start()
 
     def on_session_done() -> None:
         injector.end_stream()
@@ -145,10 +161,12 @@ def main() -> None:
     # ------------------------------------------------------------------ #
 
     def on_hotkey_press() -> None:
-        nonlocal active_transcriber
+        nonlocal active_transcriber, _press_time
 
         if state.get_state() != RecordingState.IDLE:
             return
+
+        _press_time = time.monotonic()
 
         t = RealtimeTranscriber(
             api_key=api_key,
@@ -185,11 +203,23 @@ def main() -> None:
         if current_state not in (RecordingState.RECORDING, RecordingState.TRANSCRIBING):
             return
 
-        state.set_state(RecordingState.TRANSCRIBING)
-        _set_ui("TRANSCRIBING")
+        duration = time.monotonic() - _press_time
+        min_dur = config["audio"].get("min_duration_seconds", 0.3)
 
         with _transcriber_lock:
             t = active_transcriber
+
+        if duration < min_dur:
+            # Accidental short press — cancel without committing to OpenAI
+            state.set_state(RecordingState.IDLE)
+            _set_ui("IDLE")
+            if t:
+                t.cancel()
+            injector.end_stream()
+            return
+
+        state.set_state(RecordingState.TRANSCRIBING)
+        _set_ui("TRANSCRIBING")
 
         if t:
             t.stop()

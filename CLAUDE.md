@@ -35,12 +35,13 @@ Requires a `.env` file with `OPENAI_API_KEY=sk-...` in the project root.
 ## Architecture
 
 ### Threading Model
-Four threads run concurrently:
+Five threads run concurrently:
 
 - **Main thread** — Qt `app.exec()` event loop. Only this thread may touch Qt widgets. All other threads communicate via `pyqtSignal`.
 - **HotkeyListener polling thread** — Spawned per keypress. Polls `keyboard.is_pressed()` every 20ms to detect release. Fires `on_hotkey_release` callback when combo breaks.
 - **RealtimeTranscriber thread** — Runs an asyncio event loop (`_run_loop`). Manages the OpenAI WebSocket, `_send_audio` coroutine, and `_receive_events` coroutine.
 - **sounddevice callback thread** — Internal to PortAudio. Calls the mic callback every 20ms. Uses `asyncio.run_coroutine_threadsafe` to enqueue audio chunks.
+- **DeltaFlusher thread** — Spawned by `TextInjector.start_stream()`. Wakes every 80ms, batches buffered deltas into a single `pyperclip.copy` + Ctrl+V, then sleeps again. Stopped by `end_stream()`.
 
 ### Cross-thread UI updates
 Worker threads must never touch Qt widgets directly. Mechanisms used:
@@ -60,9 +61,11 @@ Worker threads must never touch Qt widgets directly. Mechanisms used:
 3. Session configured with `input_audio_transcription.model = gpt-4o-transcribe` and server VAD.
 4. `_flush_prebuffer()` sends all pre-captured audio; `_send_audio()` continues streaming live.
 5. Server VAD emits `conversation.item.input_audio_transcription.delta` events → each delta is injected via `run_in_executor` (off the event loop) so `_send_audio` is never starved.
-6. **Hotkey released** → `stop()` called → mic stops, `_stop_event` set. Before committing, sends `session.update` with `turn_detection: None` to disable server VAD — this prevents the server from waiting out its silence window (e.g. 600ms) before processing the final audio. Then commits remaining audio via `input_audio_buffer.commit`.
+6. **Hotkey released** → duration since press is checked against `min_duration_seconds`. If too short, `cancel()` is called — this sets `_cancelled = True` then calls `stop()`, and `_session()` exits before the commit step. State returns to IDLE with no API call. For normal releases, `stop()` is called → mic stops, `_stop_event` set. Before committing, sends `session.update` with `turn_detection: None` to disable server VAD — this prevents the server from waiting out its silence window (e.g. 600ms) before processing the final audio. Then commits remaining audio via `input_audio_buffer.commit`.
 
 **Race condition guard**: `_stop_requested` flag is set in `stop()`. If `stop()` is called before `_session()` has created `_stop_event`, the flag causes `_stop_event` to be set immediately when it's created.
+
+**`cancel()` vs `stop()`**: `cancel()` is for accidental short presses — it sets `_cancelled` so `_session()` skips the VAD-disable + commit sequence entirely and just closes the WebSocket. `stop()` is the normal release path that commits audio.
 
 **Two separate model names**: The WebSocket URL uses `REALTIME_MODEL = "gpt-4o-realtime-preview"`; transcription quality is set by `gpt-4o-transcribe` (or `gpt-4o-mini-transcribe`) inside the session config.
 
@@ -70,9 +73,13 @@ Worker threads must never touch Qt widgets directly. Mechanisms used:
 
 ### Text Injection (`text_injector.py`)
 Streaming mode only (batch mode exists but is unused in the main flow):
-- `start_stream()` — saves clipboard once.
-- `inject_delta(delta)` — copies delta to clipboard, waits 30ms, sends Ctrl+V. Does NOT restore clipboard after each delta (restoring immediately after Ctrl+V races with the target app reading the clipboard, causing missed words).
-- `end_stream()` — restores original clipboard. Called after session fully completes.
+- `start_stream()` — saves clipboard once, then starts the `DeltaFlusher` background thread.
+- `inject_delta(delta)` — appends to an internal `_delta_buffer` list under `_buffer_lock`. Does not paste directly; the flusher handles that.
+- `end_stream()` — signals the flusher to stop, joins it (up to 1s), then calls `_flush_once()` to drain any deltas that arrived after the last tick, then restores the original clipboard.
+- `_flush_loop()` — runs on the DeltaFlusher thread. Sleeps `FLUSH_INTERVAL` (80ms), calls `_flush_once()`, repeats until `_flush_stop` is set.
+- `_flush_once()` — grabs all buffered text in one lock, joins it, copies to clipboard, waits `STREAM_PASTE_DELAY` (30ms), sends Ctrl+V. Single paste per flush tick regardless of how many deltas arrived.
+
+**Why batching**: Each Ctrl+V carries ~30ms of clipboard-settle delay. Batching many rapid deltas into one paste reduces that overhead and avoids flooding the target app with keystrokes.
 
 ### Settings Dialog (`settings_dialog.py`)
 `SettingsDialog` is a plain Python wrapper; `SettingsWindow` is the actual `QWidget`.
@@ -96,6 +103,7 @@ Frameless translucent pill window (`Qt.Tool` + `WA_TranslucentBackground`).
 - Always on top, click-through via `WS_EX_LAYERED | WS_EX_TRANSPARENT` (Windows ctypes).
 - `set_state()` is thread-safe (emits `_sig` pyqtSignal).
 - Positions: `bottom-right`, `bottom-left`, `top-right`, `top-left`.
+- **Animated gradient border**: When the overlay is visible (any non-IDLE state), `_border_timer` fires at ~60fps and advances `_border_angle` by `_BORDER_SPEED` degrees. `paintEvent` draws layered `QPen` strokes using `QConicalGradient` centered on the pill to produce a rotating rainbow glow. Four `_GLOW_LAYERS` are drawn back-to-front (wide diffuse → tight bright core) at decreasing opacity. Two separate `QTimer`s: `_blink_timer` for the dot, `_border_timer` for the border — both stopped in `_apply()` before re-evaluating state.
 
 ### Tray Icon (`tray_icon.py`)
 `QSystemTrayIcon` — runs on the main thread. No pystray.

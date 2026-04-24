@@ -55,6 +55,7 @@ class RealtimeTranscriber:
         self._stop_event: asyncio.Event | None = None
         self._session_ready: asyncio.Event | None = None
         self._stop_requested = False  # True if stop() called before _session() created _stop_event
+        self._cancelled = False       # True if cancel() called — skip audio commit
 
         # Audio captured before WebSocket is ready is stored here
         self._pre_buffer: deque[bytes] = deque()
@@ -92,6 +93,11 @@ class RealtimeTranscriber:
             target=self._run_loop, daemon=True, name="RealtimeTranscriber"
         )
         self._thread.start()
+
+    def cancel(self) -> None:
+        """Abort the session without committing audio (e.g. accidental short press)."""
+        self._cancelled = True
+        self.stop()
 
     def stop(self) -> None:
         """Stop mic and signal to commit remaining audio (hotkey released)."""
@@ -258,6 +264,10 @@ class RealtimeTranscriber:
                 await ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": b64}))
             except Exception:
                 break
+
+        # Cancelled (e.g. accidental short press) — close without committing
+        if self._cancelled:
+            return
 
         # Disable server VAD so the explicit commit is processed immediately
         # (without VAD, the server no longer waits for its silence window)

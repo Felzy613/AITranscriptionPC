@@ -2,7 +2,10 @@
 
 from PyQt6.QtWidgets import QWidget, QLabel, QHBoxLayout, QApplication
 from PyQt6.QtCore    import Qt, QTimer, pyqtSignal, QPoint
-from PyQt6.QtGui     import QPainter, QColor, QPainterPath, QBrush, QFont
+from PyQt6.QtGui     import (
+    QPainter, QColor, QPainterPath, QBrush, QFont,
+    QConicalGradient, QPen,
+)
 import ctypes
 
 # ── State config ───────────────────────────────────────────────────────────────
@@ -22,6 +25,29 @@ _POSITIONS = {
 
 _BG     = "#1a1a1a"
 _RADIUS = 10
+
+# Rainbow gradient stops — hue rotates around the border
+_RAINBOW = [
+    (0.00, QColor(255,  80,  80, 255)),   # red
+    (0.17, QColor(255, 180,   0, 255)),   # orange-yellow
+    (0.33, QColor( 80, 255, 120, 255)),   # green
+    (0.50, QColor(  0, 200, 255, 255)),   # cyan
+    (0.67, QColor(120,  80, 255, 255)),   # purple
+    (0.83, QColor(255,  80, 200, 255)),   # pink
+    (1.00, QColor(255,  80,  80, 255)),   # red (wrap)
+]
+
+_BORDER_SPEED  = 1.8    # degrees advanced per ~16 ms frame
+_FRAME_MS      = 16     # ~60 fps
+
+# Glow layers: (pen width px, painter opacity)
+# Drawn back-to-front: wide diffuse bloom → tight bright core
+_GLOW_LAYERS = [
+    (10.0, 0.12),
+    (6.0,  0.28),
+    (3.5,  0.60),
+    (1.5,  1.00),
+]
 
 
 class OverlayWindow(QWidget):
@@ -44,6 +70,7 @@ class OverlayWindow(QWidget):
         self._state     = "IDLE"
         self._dot_clrs: list[str] = []
         self._phase     = 0
+        self._border_angle = 0.0   # degrees, drives the rotating gradient
 
         # Layout
         lay = QHBoxLayout(self)
@@ -56,9 +83,13 @@ class OverlayWindow(QWidget):
         lay.addWidget(self._dot)
         lay.addWidget(self._text)
 
-        # Blink timer
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._blink)
+        # Dot blink timer
+        self._blink_timer = QTimer(self)
+        self._blink_timer.timeout.connect(self._blink)
+
+        # Border animation timer (~60 fps)
+        self._border_timer = QTimer(self)
+        self._border_timer.timeout.connect(self._advance_border)
 
         # Thread-safe state changes
         self._sig.connect(self._apply)
@@ -87,7 +118,8 @@ class OverlayWindow(QWidget):
 
     def _apply(self, state: str, error_msg: str) -> None:
         self._state = state
-        self._timer.stop()
+        self._blink_timer.stop()
+        self._border_timer.stop()
 
         if state == "IDLE" or not self._enabled:
             self.hide()
@@ -105,9 +137,12 @@ class OverlayWindow(QWidget):
 
         if self._dot_clrs:
             self._blink()
-            self._timer.start(600)
+            self._blink_timer.start(600)
         else:
             self._dot.set_color(QColor("transparent"))
+
+        self._border_angle = 0.0
+        self._border_timer.start(_FRAME_MS)
 
         self._reposition()
         self.show()
@@ -117,6 +152,10 @@ class OverlayWindow(QWidget):
         if self._dot_clrs:
             self._dot.set_color(QColor(self._dot_clrs[self._phase % len(self._dot_clrs)]))
             self._phase += 1
+
+    def _advance_border(self) -> None:
+        self._border_angle = (self._border_angle + _BORDER_SPEED) % 360.0
+        self.update()
 
     def _reposition(self) -> None:
         screen = QApplication.primaryScreen()
@@ -144,10 +183,41 @@ class OverlayWindow(QWidget):
     def paintEvent(self, _event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Background pill
         r    = self.rect().adjusted(0, 0, -1, -1)
         path = QPainterPath()
         path.addRoundedRect(r.x(), r.y(), r.width(), r.height(), _RADIUS, _RADIUS)
         p.fillPath(path, QColor(_BG))
+
+        # Animated gradient border — only when active
+        if self._state == "IDLE" or not self._enabled:
+            return
+
+        cx = r.width()  / 2.0
+        cy = r.height() / 2.0
+
+        grad = QConicalGradient(cx, cy, self._border_angle)
+        for stop, color in _RAINBOW:
+            grad.setColorAt(stop, color)
+
+        border_rect = self.rect().adjusted(1, 1, -2, -2)
+        border_path = QPainterPath()
+        border_path.addRoundedRect(
+            border_rect.x(), border_rect.y(),
+            border_rect.width(), border_rect.height(),
+            _RADIUS - 1, _RADIUS - 1,
+        )
+
+        brush = QBrush(grad)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        for width, opacity in _GLOW_LAYERS:
+            pen = QPen(brush, width)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setOpacity(opacity)
+            p.setPen(pen)
+            p.drawPath(border_path)
+        p.setOpacity(1.0)
 
 
 class _Dot(QWidget):
