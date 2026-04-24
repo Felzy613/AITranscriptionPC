@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
 echo ============================================
-echo  AI Voice Transcription - Setup
+echo  AI Transcription PC - Setup
 echo ============================================
 echo.
 
@@ -12,18 +12,27 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Creating virtual environment...
-python -m venv venv
-if errorlevel 1 (
-    echo ERROR: Failed to create virtual environment.
-    pause
-    exit /b 1
+if not exist venv (
+    echo Creating virtual environment...
+    python -m venv venv
+    if errorlevel 1 (
+        echo ERROR: Failed to create virtual environment.
+        pause
+        exit /b 1
+    )
 )
 
 echo Activating virtual environment...
 call venv\Scripts\activate.bat
 
 echo Installing dependencies...
+pip install --upgrade pip
+if errorlevel 1 (
+    echo ERROR: Failed to upgrade pip.
+    pause
+    exit /b 1
+)
+
 pip install -r requirements.txt
 if errorlevel 1 (
     echo ERROR: Failed to install dependencies.
@@ -31,12 +40,12 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist .env (
-    echo Creating .env template...
-    echo OPENAI_API_KEY=sk-your-key-here> .env
+if not exist .env if exist .env.example (
+    echo Creating .env from template...
+    copy /y .env.example .env >nul
     echo.
-    echo *** IMPORTANT: Edit .env and replace sk-your-key-here with your real OpenAI API key ***
-    echo *** Get your key at: https://platform.openai.com/api-keys ***
+    echo Optional: edit .env to set OPENAI_API_KEY ahead of first launch.
+    echo If you skip this, the app will prompt for the key when it starts.
     echo.
 )
 
@@ -45,12 +54,10 @@ echo ============================================
 echo  Setup complete!
 echo ============================================
 echo.
-echo Next steps:
-echo   1. Edit .env and add your OpenAI API key
-echo   2. Run the app:  venv\Scripts\pythonw.exe main.py
-echo      (Use pythonw.exe to run without a console window)
+echo Run the app with:
+echo   venv\Scripts\pythonw.exe main.py
 echo.
-echo To run WITH console for debugging:
-echo      venv\Scripts\python.exe main.py
+echo For console output while debugging:
+echo   venv\Scripts\python.exe main.py
 echo.
 pause

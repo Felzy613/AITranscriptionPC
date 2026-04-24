@@ -13,6 +13,8 @@ from hotkey_listener import HotkeyListener
 from overlay import OverlayWindow
 from tray_icon import TrayIcon
 from settings_dialog import SettingsDialog
+from secure_storage import SecureStorage
+from api_key_setup import APIKeySetupDialog
 
 
 # ---------------------------------------------------------------------------
@@ -32,18 +34,21 @@ def main() -> None:
     # --- Load config ---
     config_mgr = ConfigManager()
     config = config_mgr.load()
-    api_key = config_mgr.get_api_key()
+
+    # --- API key: DPAPI storage (Windows) with .env fallback for dev ---
+    secure = SecureStorage()
+    api_key = secure.get_api_key() or config_mgr.get_api_key()
 
     if not api_key:
-        QMessageBox.critical(
-            None,
-            "Missing API Key",
-            "OPENAI_API_KEY not found or is a placeholder.\n\n"
-            "Please create or edit the .env file in the app folder:\n"
-            "  OPENAI_API_KEY=sk-proj-your-real-key-here\n\n"
-            "Get your key at: https://platform.openai.com/api-keys",
-        )
-        sys.exit(1)
+        dlg = APIKeySetupDialog(storage_description=secure.storage_description())
+        dlg.api_key_set.connect(secure.set_api_key)
+        if dlg.exec() != APIKeySetupDialog.DialogCode.Accepted:
+            sys.exit(0)
+        api_key = secure.get_api_key()
+        if not api_key:
+            QMessageBox.critical(None, "Setup Required",
+                                 "A valid OpenAI API key is required to use this app.")
+            sys.exit(1)
 
     # --- Shared state ---
     state = AppState()

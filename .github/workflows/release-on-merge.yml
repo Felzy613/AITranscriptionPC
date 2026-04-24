@@ -1,0 +1,76 @@
+name: Release Windows App
+
+on:
+  pull_request:
+    types:
+      - closed
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'master') }}
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out merged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: .\build_windows.ps1 -TargetArchitecture x64
+
+      - name: Resolve release metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $versionMatch = Select-String -Path ".\setup.iss" -Pattern '^#define MyAppVersion "(.+)"$'
+          if (-not $versionMatch) {
+            throw "Could not determine version from setup.iss"
+          }
+
+          $version = $versionMatch.Matches[0].Groups[1].Value
+          $tag = "v$version"
+          $installer = "dist-installer/AITranscriptionPCSetup-v$version.exe"
+
+          if (-not (Test-Path $installer)) {
+            throw "Installer not found at $installer"
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "installer=$installer" >> $env:GITHUB_OUTPUT
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $installer = "${{ steps.meta.outputs.installer }}"
+          $title = "AI Transcription PC v${{ steps.meta.outputs.version }}"
+
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $installer --repo $env:GITHUB_REPOSITORY --clobber
+          } else {
+            gh release create $tag $installer `
+              --repo $env:GITHUB_REPOSITORY `
+              --target "${{ github.event.pull_request.merge_commit_sha }}" `
+              --title $title `
+              --generate-notes
+          }

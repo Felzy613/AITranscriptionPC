@@ -1,17 +1,22 @@
 # API key — never commit this
 .env
+.DS_Store
 
 # Python
 __pycache__/
 *.py[cod]
 *.pyo
 venv/
+build/
+dist/
+dist-installer/
 
 # User config (auto-generated on first run)
 config.json
 
 # Debug / temp files
 *.txt
+!requirements.txt
 *.log
 Screenshot*
 fw_err.txt
